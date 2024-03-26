@@ -53,10 +53,49 @@ def get_client(network):
             f'{os.getenv("ALGOD_TESTNET_SERVER")}:{os.getenv("ALGOD_TESTNET_PORT")}',
         )
 
+def log(network, msg):
+    click.echo(
+        f"[{datetime.now().strftime('%H:%M:%S')}] "
+        + f"{click.style(network.upper(), fg='yellow' if network == 'mainnet' else 'red', bold=True)}: "
+        + msg
+    )
+
+def is_node_ready(client):
+    try:
+        result = client.ready()
+        print(f"Ready? '{result}'")
+        return True
+    except algosdk.error.AlgodHTTPError as e:
+        if e.code == 503:
+            return False
+        raise # unknown status (https://developer.algorand.org/docs/rest-apis/algod/#get-ready)
+
+# def is_node_synched(client):
+#     status = client.status()
+#     return status["catchup-time"] <= 0
+
+def try_get_node_status(client):
+    try:
+        return client.status()
+    except:
+        return None
 
 def check_node_connection(network):
     client = get_client(network)
     try:
+        while not is_node_ready(client):
+            status = try_get_node_status(client) # client.status() sometimes works and sometimes fails while the node is still starting...
+            if status is None:
+                log(network, click.style(f"Node is still starting / synchronizing...", fg="yellow"))
+            else:
+                log(network, click.style(f"Node is still starting / synchronizing (block {status['last-round']}, catchup time {status['catchup-time'] * 10.0**-9:.0f} secs)...", fg="yellow"))
+            time.sleep(15.0)
+
+        # while not is_node_synched(client):
+        #     status = client.status()
+        #     log(network, click.style(f"Node is still starting / synchronizing (block {status['last-round']}, catchup time {status['catchup-time'] * 10.0**-9:.0f} secs, ready {is_node_ready(network)})...", fg="yellow"))
+        #     time.sleep(15.0)
+
         status = client.status()
         click.secho(
             f"Node connected successfully. Block {status['last-round']}",
@@ -67,7 +106,8 @@ def check_node_connection(network):
             "Node connection failed. Please update your node connectivity settings.",
             fg="red",
         )
-        exit()
+        click.secho(f"Error: {e}", fg="red")
+        exit(1)
 
 
 def get_state_value(state, key):
@@ -136,10 +176,11 @@ def check_miner(network, tpm, fee):
             f"Miner will spend {click.style(miner_balance / pow(10, 6), bold=True)} ALGO"
         )
         miner_seconds = math.floor(miner_balance / (cost / 60))
-        miner_hours = math.floor(miner_seconds / 3600)
-        miner_minutes = math.floor((miner_seconds % 3600) / 60)
+        miner_days = math.floor(miner_seconds / 86400)
+        miner_hours = math.floor((miner_seconds % 86400) / 3600)
+        miner_minutes = math.floor((miner_seconds % 86400 % 3600) / 60)
         duration = click.style(
-            f"{miner_hours} {'hour' if miner_hours == 1 else 'hours'} and {miner_minutes} {'minute' if miner_minutes == 1 else 'minutes'}",
+            f"{miner_days} {'day' if miner_days == 1 else 'days'}, {miner_hours} {'hour' if miner_hours == 1 else 'hours'} and {miner_minutes} {'minute' if miner_minutes == 1 else 'minutes'}",
             bold=True,
         )
         click.echo(f"Miner will run for approximately {duration}")
@@ -251,11 +292,7 @@ def log_mining_stats(network, app_info, miner_info, total_txs):
     own_effort_pct = miner_info['own_effort'] / app_info['last_miner_effort'] * 100.0
     if prev_block != app_info["block"] and prev_block != "":
         click.echo()
-    click.echo(
-        f"[{datetime.now().strftime('%H:%M:%S')}] "
-        + f"{click.style(network.upper(), fg='red' if network == 'testnet' else 'yellow', bold=True)}: "
-        + f"Sent {total_txs} transactions, {pending_txs} pending, block {app_info['block']}, current effort: {app_info['current_miner_effort']}, last effort: {app_info['last_miner_effort']}, own effort: {miner_info['own_effort']} ({own_effort_pct:.1f}%)"
-    )
+    log(network, f"Sent {total_txs} transactions, {pending_txs} pending, block {app_info['block']}, current effort: {app_info['current_miner_effort']}, last effort: {app_info['last_miner_effort']}, own effort: {miner_info['own_effort']} ({own_effort_pct:.1f}%)")
     prev_block = app_info["block"]
 
 MINIMUM_BALANCE_THRESHOLD = int(os.getenv("MINIMUM_BALANCE_THRESHOLD", 1000000))
