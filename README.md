@@ -16,3 +16,9 @@ To start mining, use the CLI like this:
 tpm - transactions per minute
 fee - fee per transaction in micro ALGO
 ```
+
+# Run node
+
+```
+docker run --rm -it --name algo-node -p 8080:8080 -e NETWORK=mainnet -e FAST_CATCHUP=1 -e PROFILE=participation -v c:/temp/algorand:/algod/data --dns 8.8.8.8 algorand/algod:stable
+```
